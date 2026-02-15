@@ -1,60 +1,34 @@
-import telebot
-import datetime
+import os
 import time
-
-import sqlite3
-import json
-
-conn = sqlite3.connect("bot.db", check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS data (
-    key TEXT PRIMARY KEY,
-    value TEXT
-)
-""")
-
-conn.commit()
-
-
-def db_set(key, value):
-    cursor.execute(
-        "INSERT OR REPLACE INTO data (key, value) VALUES (?, ?)",
-        (key, json.dumps(value))
-    )
-    conn.commit()
-
-
-def db_get(key, default):
-    cursor.execute("SELECT value FROM data WHERE key=?", (key,))
-    row = cursor.fetchone()
-    if row:
-        return json.loads(row[0])
-    return default
-
+import telebot
 from flask import Flask
 from threading import Thread
-import os
 
-app = Flask('')
+# ====== TOKEN из переменных окружения Render ======
+TOKEN = os.getenv("TOKEN")
 
-@app.route('/')
-def home():
-    return "Bot is alive"
-
-def run():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
-
-def keep_alive():
-    t = Thread(target=run, daemon=True)
-    t.start()
-
-TOKEN = "8251028589:AAF2DkXC5sFF-0NnU4JmqTYuMIuHy0vaVXs"
-OWNER_ID = 8402496361
+if not TOKEN:
+    raise ValueError("❌ TOKEN не найден! Добавь его в Environment Variables Render.")
 
 bot = telebot.TeleBot(TOKEN)
 
+# ====== KEEP ALIVE WEB SERVER (для Render) ======
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
+
+# ====== ТВОЙ КОД БОТА НИЖЕ ======
+# (логика не изменена, сюда вставляешь свои хендлеры)
 admins = set(db_get("admins", [OWNER_ID]))
 
 active_list = "restart"
@@ -211,7 +185,7 @@ def add_admin(message):
 
     if message.from_user.id != OWNER_ID:
         return
-
+        
     try:
         new_id = int(message.text.split()[1])
         admins.add(new_id)
@@ -227,8 +201,7 @@ def remove_admin(message):
 
     if message.from_user.id != OWNER_ID:
         return
-
-    try:
+        try:
         rem_id = int(message.text.split()[1])
         admins.discard(rem_id)
         db_set("admins", list(admins))
@@ -270,7 +243,7 @@ def stats(message):
     bot.send_message(message.chat.id, text)
 
 
-@bot.message_handler(commands=['clear'])
+@bot.message_handler(commands=['clear']) 
 def clear(message):
 
     if message.from_user.id not in admins:
@@ -328,7 +301,7 @@ def handle(message):
     if not srv:
         return
 
-    if srv in owners[active_list]:
+if srv in owners[active_list]:
 
         if owners[active_list][srv] != message.from_user.id:
             bot.reply_to(message, "❌ Уже занято другим игроком")
@@ -416,3 +389,21 @@ while True:
             pass 
 
         time.sleep(5) 
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.send_message(message.chat.id, "✅ Бот работает на Render!")
+
+# ====== АВТОПЕРЕЗАПУСК ======
+def run_bot():
+    while True:
+        try:
+            print("🤖 Бот запущен...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=30)
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            time.sleep(5)
+
+if __name__ == "__main__":
+    keep_alive()
+    run_bot()
